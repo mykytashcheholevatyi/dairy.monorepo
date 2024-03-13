@@ -3,35 +3,39 @@ package main
 import (
     "context"
     "database/sql"
+    "encoding/json"
     "fmt"
     "net/http"
     "os"
-    "golang.org/x/crypto/bcrypt"
+
     "github.com/dgrijalva/jwt-go"
     "github.com/gorilla/mux"
-    _ "github.com/lib/pq" // PostgreSQL driver
+    _ "github.com/lib/pq"
+    "golang.org/x/crypto/bcrypt"
 )
 
-// Config структура для хранения конфигурации приложения.
+// Config holds the application configuration.
 type Config struct {
-    DatabaseURL string // URL подключения к базе данных
+    DatabaseURL string // Database connection URL
+    JWTSecret   string // Secret for JWT token generation
 }
 
-// LoadConfig функция для загрузки конфигурации из переменных окружения.
+// LoadConfig loads configuration from environment variables.
 func LoadConfig() *Config {
     return &Config{
         DatabaseURL: os.Getenv("DATABASE_URL"),
+        JWTSecret:   os.Getenv("JWT_SECRET"),
     }
 }
 
-// User структура для пользователя.
+// User represents a user entity.
 type User struct {
     ID       int
     Username string
-    Password string // Хэшированный пароль
+    Password string // Hashed password
 }
 
-// DiaryEntry структура для записи в дневнике.
+// DiaryEntry represents a diary entry entity.
 type DiaryEntry struct {
     ID        int
     UserID    int
@@ -40,7 +44,7 @@ type DiaryEntry struct {
     Timestamp string
 }
 
-// InitDB функция для инициализации и подключения к базе данных.
+// InitDB initializes and connects to the database.
 func InitDB(databaseURL string) (*sql.DB, error) {
     db, err := sql.Open("postgres", databaseURL)
     if err != nil {
@@ -52,60 +56,60 @@ func InitDB(databaseURL string) (*sql.DB, error) {
     return db, nil
 }
 
-// HealthCheckHandler обрабатывает запросы на проверку здоровья приложения.
+// HealthCheckHandler handles health check requests.
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
     w.WriteHeader(http.StatusOK)
     w.Write([]byte("OK"))
 }
 
-// UserRepository интерфейс, определяющий методы для работы с пользователями в базе данных.
+// UserRepository defines methods for user database operations.
 type UserRepository interface {
     CreateUser(ctx context.Context, user *User) error
     GetUserByUsername(ctx context.Context, username string) (*User, error)
 }
 
-// userRepository структура, реализующая UserRepository интерфейс.
+// userRepository implements UserRepository interface.
 type userRepository struct {
     db *sql.DB
 }
 
-// NewUserRepository функция для создания нового экземпляра userRepository.
+// NewUserRepository creates a new userRepository instance.
 func NewUserRepository(db *sql.DB) UserRepository {
     return &userRepository{db: db}
 }
 
-// CreateUser метод для создания нового пользователя в базе данных.
+// CreateUser creates a new user in the database.
 func (r *userRepository) CreateUser(ctx context.Context, user *User) error {
     _, err := r.db.ExecContext(ctx, "INSERT INTO users (username, password) VALUES ($1, $2)", user.Username, user.Password)
     return err
 }
 
-// GetUserByUsername метод для получения пользователя из базы данных по его имени.
+// GetUserByUsername retrieves a user from the database by username.
 func (r *userRepository) GetUserByUsername(ctx context.Context, username string) (*User, error) {
     var user User
     err := r.db.QueryRowContext(ctx, "SELECT id, username, password FROM users WHERE username = $1", username).Scan(&user.ID, &user.Username, &user.Password)
     if err != nil {
         if err == sql.ErrNoRows {
-            return nil, nil // Пользователь не найден
+            return nil, nil // User not found
         }
         return nil, err
     }
     return &user, nil
 }
 
-// HashPassword функция для хэширования пароля пользователя.
+// HashPassword hashes user password.
 func HashPassword(password string) (string, error) {
     bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
     return string(bytes), err
 }
 
-// Authenticate метод для проверки введенного пароля по хэшированному паролю в базе данных.
+// Authenticate checks if the entered password matches the hashed password in the database.
 func (u *User) Authenticate(password string) bool {
     err := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(password))
     return err == nil
 }
 
-// GenerateToken создает JWT токен на основе переданных данных.
+// GenerateToken creates a JWT token based on the provided data.
 func GenerateToken(userID int, jwtSecret string) (string, error) {
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
         "userID": userID,
@@ -113,7 +117,7 @@ func GenerateToken(userID int, jwtSecret string) (string, error) {
     return token.SignedString([]byte(jwtSecret))
 }
 
-// ParseToken проверяет и разбирает JWT токен.
+// ParseToken verifies and parses the JWT token.
 func ParseToken(tokenString, jwtSecret string) (int, error) {
     token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
         return []byte(jwtSecret), nil
@@ -127,58 +131,134 @@ func ParseToken(tokenString, jwtSecret string) (int, error) {
     }
 }
 
-// CreateDiaryEntry создает новую запись в дневнике.
+// CreateDiaryEntry creates a new diary entry.
 func CreateDiaryEntry(w http.ResponseWriter, r *http.Request) {
-    // Ваша логика создания новой записи в дневнике здесь
-}
-
-// GetDiaryEntry получает информацию о конкретной записи в дневнике.
-func GetDiaryEntry(w http.ResponseWriter, r *http.Request) {
-    // Ваша логика получения информации о конкретной записи в дневнике здесь
-}
-
-// UpdateDiaryEntry обновляет информацию о конкретной записи в дневнике.
-func UpdateDiaryEntry(w http.ResponseWriter, r *http.Request) {
-    // Ваша логика обновления информации о конкретной записи в дневнике здесь
-}
-
-func main() {
-    config := LoadConfig()
-
-    db, err := InitDB(config.DatabaseURL)
+    // Parsing data from the request
+    var entry DiaryEntry
+    err := json.NewDecoder(r.Body).Decode(&entry)
     if err != nil {
-        fmt.Println("Ошибка подключения к базе данных:", err)
+        http.Error(w, "Error reading request data", http.StatusBadRequest)
         return
     }
-    defer db.Close()
 
-    // Роутер для обработки запросов
+    // Your logic for creating a new diary entry goes here
+}
+
+// GetDiaryEntry retrieves information about a specific diary entry.
+func GetDiaryEntry(w http.ResponseWriter, r *http.Request) {
+    // Parsing request parameter (e.g., entry ID)
+    entryID := mux.Vars(r)["id"]
+
+    // Your logic for retrieving information about a specific diary entry goes here
+}
+
+// UpdateDiaryEntry updates information about a specific diary entry.
+func UpdateDiaryEntry(w http.ResponseWriter, r *http.Request) {
+    // Parsing data from the request
+    var entry DiaryEntry
+    err := json.NewDecoder(r.Body).Decode(&entry)
+    if err != nil {
+        http.Error(w, "Error reading request data", http.StatusBadRequest)
+        return
+    }
+
+    // Your logic for updating information about a specific diary entry goes here
+}
+
+// RegisterUser registers a new user.
+func RegisterUser(w http.ResponseWriter, r *http.Request) {
+    // Parsing data from the request
+    var user User
+    err := json.NewDecoder(r.Body).Decode(&user)
+    if err != nil {
+        http.Error(w, "Error reading request data", http.StatusBadRequest)
+        return
+    }
+
+    // Hashing user password
+    hashedPassword, err := HashPassword(user.Password)
+    if err != nil {
+        http.Error(w, "Error hashing password", http.StatusInternalServerError)
+        return
+    }
+    user.Password = hashedPassword
+
+    // Creating a new user in the database
+    err = userRepository.CreateUser(context.Background(), &user)
+    if err != nil {
+        http.Error(w, "Error creating user", http.StatusInternalServerError)
+        return
+    }
+
+    // Sending a response about successful registration
+    w.WriteHeader(http.StatusCreated)
+}
+
+// LoginUser authenticates a user and issues a JWT token.
+func LoginUser(w http.ResponseWriter, r *http.Request) {
+    // Parsing data from the request
+    var credentials struct {
+        Username string `json:"username"`
+        Password string `json:"password"`
+    }
+    err := json.NewDecoder(r.Body).Decode(&credentials)
+    if err != nil {
+        http.Error(w, "Error reading request data", http.StatusBadRequest)
+        return
+    }
+
+    // Retrieving the user from the database by username
+    user, err := userRepository.GetUserByUsername(context.Background(), credentials.Username)
+    if err != nil {
+        http.Error(w, "Error getting user", http.StatusInternalServerError)
+        return
+    }
+    if user == nil {
+        http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+        return
+    }
+
+    // Checking the password
+    if !user.Authenticate(credentials.Password) {
+        http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+        return
+    }
+
+    // Creating JWT token
+    token, err := GenerateToken(user.ID, config.JWTSecret)
+    if err != nil {
+        http.Error(w, "Error generating JWT token", http.StatusInternalServerError)
+        return
+    }
+
+    // Sending the JWT token in the response
+    json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
+var (
+    config         = LoadConfig()
+    db, _          = InitDB(config.DatabaseURL)
+    userRepository = NewUserRepository(db)
+)
+
+func main() {
+    // Router for handling requests
     r := mux.NewRouter()
 
-    // Обработчики для работы с пользователем
+    // Handlers for user operations
     r.HandleFunc("/register", RegisterUser).Methods("POST")
     r.HandleFunc("/login", LoginUser).Methods("POST")
 
-    // Обработчики для работы с записями в дневнике
+    // Handlers for diary entry operations
     r.HandleFunc("/diary/entry", CreateDiaryEntry).Methods("POST")
     r.HandleFunc("/diary/entry/{id}", GetDiaryEntry).Methods("GET")
     r.HandleFunc("/diary/entry/{id}", UpdateDiaryEntry).Methods("PUT")
 
-    // Обработчик проверки здоровья приложения
+    // Handler for health check
     r.HandleFunc("/health", HealthCheckHandler)
 
-    fmt.Println("Сервер запущен на порту 8080")
+    fmt.Println("Server is running on port 8080")
     if err := http.ListenAndServe(":8080", r); err != nil {
-        fmt.Println("Ошибка запуска сервера:", err)
+        fmt.Println("Error starting the server:", err)
     }
-}
-
-// RegisterUser регистрирует нового пользователя.
-func RegisterUser(w http.ResponseWriter, r *http.Request) {
-    // Ваша логика регистрации нового пользователя здесь
-}
-
-// LoginUser аутентифицирует пользователя и выдает ему JWT токен.
-func LoginUser(w http.ResponseWriter, r *http.Request) {
-    // Ваша логика аутентификации пользователя здесь
 }

@@ -2,7 +2,6 @@ package main
 
 import (
     "context"
-    "database/sql"
     "os"
     "testing"
     "time"
@@ -14,7 +13,6 @@ func TestUserDiary(t *testing.T) {
     // Подготовка конфигурации
     config := &Config{
         DatabaseURL: os.Getenv("DATABASE_URL"), // Переменная окружения для URL базы данных
-        JWTSecret:   "your-jwt-secret",          // Секрет для генерации JWT токенов
     }
 
     // Подключение к базе данных
@@ -50,8 +48,8 @@ func TestUserDiary(t *testing.T) {
     diaryRepo := NewDiaryRepository(db)
     entry := &DiaryEntry{
         UserID:    createdUser.ID,
-        Date:      time.Now(),
-        Text:      "test diary entry",
+        Timestamp: time.Now(), // Исправлено на Timestamp
+        Content:   "test diary entry", // Исправлено на Content
     }
     if err := diaryRepo.CreateEntry(ctx, entry); err != nil {
         t.Fatalf("ошибка создания записи в дневнике: %v", err)

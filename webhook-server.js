@@ -56,19 +56,12 @@ const server = http.createServer((req, res) => {
 });
 
 function updateCodeAndLogs(res) {
-  exec(`cd ${projectDir} && git pull --rebase origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
+  exec(`cd ${projectDir} && git pull --rebase=true origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
     if (updateError) {
-      if (updateStderr.includes('hint: You have divergent branches')) {
-        const errorMessage = 'Error updating code: Divergent branches detected. Choosing resolution strategy...';
-        logger.error(errorMessage);
-        resolveDivergentBranches(res);
-        return;
-      } else {
-        logger.error(`Error updating code: ${updateError}`);
-        res.statusCode = 500;
-        res.end(`Error updating code: ${updateError}`);
-        return;
-      }
+      logger.error(`Error updating code: ${updateError}`);
+      res.statusCode = 500;
+      res.end(`Error updating code: ${updateError}`);
+      return;
     }
 
     logger.info(`Code updated: ${updateStdout}`);
@@ -76,22 +69,6 @@ function updateCodeAndLogs(res) {
 
     startGoApp();
     commitLogs(res);
-  });
-}
-
-function resolveDivergentBranches(res) {
-  exec(`cd ${projectDir} && git pull origin ${gitBranch} --rebase`, (resolveError, resolveStdout, resolveStderr) => {
-    if (resolveError) {
-      logger.error(`Error resolving divergent branches: ${resolveError}`);
-      res.statusCode = 500;
-      res.end(`Error resolving divergent branches: ${resolveError}`);
-      return;
-    }
-
-    logger.info(`Divergent branches resolved: ${resolveStdout}`);
-    resolveStderr && logger.error(`Resolve stderr: ${resolveStderr}`);
-
-    updateCodeAndLogs(res);
   });
 }
 

@@ -1375,7 +1375,7 @@ func submitHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 
-// Функция, возвращающая ошибку
+// Функция, возвращаающая ошибку
 func doSomething() error {
     // Выполнение какой-то операции
     if err != nil {

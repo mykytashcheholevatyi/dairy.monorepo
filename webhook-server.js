@@ -56,21 +56,12 @@ const server = http.createServer((req, res) => {
 });
 
 function updateCodeAndLogs(res) {
-  exec(`cd ${projectDir} && git pull origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
+  exec(`cd ${projectDir} && git pull --rebase origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
     if (updateError) {
-      if (updateStderr.includes('hint: You have divergent branches')) {
-        const errorMessage = 'Error updating code: Divergent branches detected. Choose resolution strategy.';
-        const options = ['Merge', 'Rebase', 'Fast-Forward Only'];
-        logger.error(errorMessage);
-        res.statusCode = 409;
-        res.end(`${errorMessage}\nOptions: ${options.join(', ')}`);
-        return;
-      } else {
-        logger.error(`Error updating code: ${updateError}`);
-        res.statusCode = 500;
-        res.end(`Error updating code: ${updateError}`);
-        return;
-      }
+      logger.error(`Error updating code: ${updateError}`);
+      res.statusCode = 500;
+      res.end(`Error updating code: ${updateError}`);
+      return;
     }
 
     logger.info(`Code updated: ${updateStdout}`);

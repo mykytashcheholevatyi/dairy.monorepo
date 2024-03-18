@@ -135,7 +135,7 @@ func UpdateDiaryEntry(w http.ResponseWriter, r *http.Request) {
     var entry DiaryEntry
     err := json.NewDecoder(r.Body).Decode(&entry)
     if err != nil {
-        http.Error(w, "Ошибка при чтении данных запроса", http.StatusBadRequest)
+        http.Error(w, "Ошибкааа при чтении данных запроса", http.StatusBadRequest)
         return
     }
 }

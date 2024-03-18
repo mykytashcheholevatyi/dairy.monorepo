@@ -56,48 +56,54 @@ const server = http.createServer((req, res) => {
         return;
       }
 
-      // Обновление кода из репозитория Git
-      exec(`cd ${projectDir} && git pull origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
-        if (updateError) {
-          logger.error(`Error updating code: ${updateError}`);
-          res.statusCode = 500; // Internal server error
-          res.end(`Error updating code: ${updateError}`);
-          return;
-        }
-
-        logger.info(`Code updated: ${updateStdout}`);
-        updateStderr && logger.error(`Update stderr: ${updateStderr}`);
-
-        // Запуск Go-приложения
-        exec(`go run ${goAppPath} > ${goLogPath} 2>&1 &`, (goError, goStdout, goStderr) => {
-          if (goError) {
-            logger.error(`Go app exec error: ${goError}`);
-            return;
-          }
-          goStdout && logger.info(`Go app stdout: ${goStdout}`);
-          goStderr && logger.info(`Go app stderr: ${goStderr}`);
-        });
-
-        // Коммит логов в репозиторий Git
-        exec(`cd ${projectDir} && git add . && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`, (logError, logStdout, logStderr) => {
-          if (logError) {
-            logger.error(`Error committing logs: ${logError}`);
-            res.statusCode = 500; // Internal server error
-            res.end(`Error committing logs: ${logError}`);
-            return;
-          }
-
-          logger.info(`Logs committed: ${logStdout}`);
-          logStderr && logger.error(`Log commit stderr: ${logStderr}`);
-          res.end('Code updated, Go app started, and logs committed.');
-        });
-      });
-    });
-  } else {
-    res.statusCode = 404; // Not found
-    res.end();
+// Обновление кода из репозитория Git
+exec(`cd ${projectDir} && git pull origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
+  if (updateError) {
+    if (updateStderr.includes('Your local changes to the following files would be overwritten by merge')) {
+      // В случае конфликта при обновлении, предложить пользователю выбрать стратегию разрешения конфликта
+      const errorMessage = 'Error updating code: Merge conflict detected. Choose conflict resolution strategy.';
+      const options = ['Merge', 'Rebase', 'Fast-Forward Only'];
+      logger.error(errorMessage);
+      res.statusCode = 409; // Conflict
+      res.end(`${errorMessage}\nOptions: ${options.join(', ')}`);
+      return;
+    } else {
+      // Если другая ошибка, вывести сообщение об ошибке
+      logger.error(`Error updating code: ${updateError}`);
+      res.statusCode = 500; // Internal server error
+      res.end(`Error updating code: ${updateError}`);
+      return;
+    }
   }
+
+  logger.info(`Code updated: ${updateStdout}`);
+  updateStderr && logger.error(`Update stderr: ${updateStderr}`);
+
+  // Запуск Go-приложения
+  exec(`go run ${goAppPath} > ${goLogPath} 2>&1 &`, (goError, goStdout, goStderr) => {
+    if (goError) {
+      logger.error(`Go app exec error: ${goError}`);
+      return;
+    }
+    goStdout && logger.info(`Go app stdout: ${goStdout}`);
+    goStderr && logger.info(`Go app stderr: ${goStderr}`);
+  });
+
+  // Коммит логов в репозиторий Git
+  exec(`cd ${projectDir} && git add . && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`, (logError, logStdout, logStderr) => {
+    if (logError) {
+      logger.error(`Error committing logs: ${logError}`);
+      res.statusCode = 500; // Internal server error
+      res.end(`Error committing logs: ${logError}`);
+      return;
+    }
+
+    logger.info(`Logs committed: ${logStdout}`);
+    logStderr && logger.error(`Log commit stderr: ${logStderr}`);
+    res.end('Code updated, Go app started, and logs committed.');
+  });
 });
+
 
 // Запуск сервера
 server.listen(PORT, () => {

@@ -1,27 +1,22 @@
 const http = require('http');
-const { exec } = require('child_process');
+const simpleGit = require('simple-git');
+const pino = require('pino');
+const cron = require('node-cron');
 const os = require('os');
-const winston = require('winston');
 
 const PORT = 3000;
 const projectDir = '/var/www/dairy-monorepo';
 const gitBranch = 'main';
 const logCommitMessage = '[Log Update] Automated log commit';
 
-// Logger configuration
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    winston.format.printf(info => `[${info.timestamp}] ${info.level}: ${info.message}`)
-  ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: `${projectDir}/logs/webhook-server.log` }),
-  ],
+const git = simpleGit(projectDir);
+const logger = pino({ level: 'info' }, pino.destination(`${projectDir}/logs/webhook-server.log`));
+
+// Schedule a task to check for updates periodically
+cron.schedule('*/30 * * * *', () => {
+  checkForUpdates();
 });
 
-// HTTP server for handling webhooks
 const server = http.createServer((req, res) => {
   if (req.method === 'POST') {
     handlePostRequest(req, res);
@@ -36,7 +31,9 @@ function handlePostRequest(req, res) {
   req.on('data', chunk => {
     body += chunk.toString();
   });
-  req.on('end', () => processRequestBody(body, res));
+  req.on('end', () => {
+    processRequestBody(body, res);
+  });
 }
 
 function processRequestBody(body, res) {
@@ -44,52 +41,40 @@ function processRequestBody(body, res) {
   try {
     payload = JSON.parse(body);
   } catch (e) {
-    handleError(res, 400, 'Error parsing JSON payload from GitHub webhook');
+    logger.error('Error parsing JSON payload from GitHub webhook');
+    res.statusCode = 400;
+    res.end('Error parsing JSON payload');
     return;
   }
-  const lastCommitMessage = (payload.head_commit && payload.head_commit.message) || '';
-  if (lastCommitMessage.includes(logCommitMessage)) {
+  const lastCommitMessage = payload.head_commit && payload.head_commit.message;
+  if (lastCommitMessage && lastCommitMessage.includes(logCommitMessage)) {
     logger.info('Commit for log update detected, skipping code update to avoid loop.');
     res.end('Log update commit detected, skipping.');
     return;
   }
-  checkForCleanDirectoryAndPullChanges(res);
+  checkForUpdates();
+  res.end('Webhook received and processed.');
 }
 
-function checkForCleanDirectoryAndPullChanges(res) {
-  exec(`cd ${projectDir} && git status --porcelain`, (err, stdout, stderr) => {
-    if (err) {
-      handleError(res, 500, `Error checking for clean directory: ${err}`);
-      return;
+function checkForUpdates() {
+  git.status().then(status => {
+    if (!status.isClean()) {
+      logger.warn('The working directory is not clean. Attempting to stash changes.');
+      git.stash().then(() => updateCode()).catch(err => logger.error(`Stashing error: ${err}`));
+    } else {
+      updateCode();
     }
-    if (stdout) {
-      handleError(res, 500, 'The working directory is not clean. Aborting auto-update.');
-      return;
-    }
-    pullChanges(res);
+  }).catch(err => logger.error(`Git status error: ${err}`));
+}
+
+function updateCode() {
+  git.pull('origin', gitBranch, {'--rebase': 'true'}).then(() => {
+    logger.info('Repository successfully updated.');
+  }).catch(err => {
+    logger.error(`Git pull error: ${err}`);
   });
-}
-
-function pullChanges(res) {
-  exec(`cd ${projectDir} && git pull --rebase origin ${gitBranch}`, (err, stdout, stderr) => {
-    if (err) {
-      handleError(res, 500, `Error updating code: ${err}`);
-      return;
-    }
-    logger.info(`Code updated: ${stdout}`);
-    stderr && logger.error(`Update stderr: ${stderr}`);
-    res.end('Code updated.');
-  });
-}
-
-function handleError(res, statusCode, errorMessage) {
-  logger.error(errorMessage);
-  res.statusCode = statusCode;
-  res.end(errorMessage);
 }
 
 server.listen(PORT, () => {
-  const timestamp = new Date().toISOString();
-  const host = os.hostname();
-  logger.info(`Server started at ${timestamp} on ${host}`);
+  logger.info(`Server started at ${new Date().toISOString()} on ${os.hostname()}`);
 });

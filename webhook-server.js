@@ -1,7 +1,6 @@
 const http = require('http');
-const simpleGit = require('simple-git');
+const simpleGit = require('simple-git/promise'); // Используем промисы для упрощения асинхронного кода
 const pino = require('pino');
-const cron = require('node-cron');
 const os = require('os');
 
 const PORT = 3000;
@@ -12,11 +11,6 @@ const logCommitMessage = '[Log Update] Automated log commit';
 const git = simpleGit(projectDir);
 const logger = pino({ level: 'info' }, pino.destination(`${projectDir}/logs/webhook-server.log`));
 
-// Schedule a task to check for updates periodically
-cron.schedule('*/30 * * * *', () => {
-  checkForUpdates();
-});
-
 const server = http.createServer((req, res) => {
   if (req.method === 'POST') {
     handlePostRequest(req, res);
@@ -26,7 +20,7 @@ const server = http.createServer((req, res) => {
   }
 });
 
-function handlePostRequest(req, res) {
+async function handlePostRequest(req, res) {
   let body = '';
   req.on('data', chunk => {
     body += chunk.toString();
@@ -36,12 +30,12 @@ function handlePostRequest(req, res) {
   });
 }
 
-function processRequestBody(body, res) {
+async function processRequestBody(body, res) {
   let payload;
   try {
     payload = JSON.parse(body);
   } catch (e) {
-    logger.error('Error parsing JSON payload from GitHub webhook');
+    logger.error('Error parsing JSON payload from GitHub webhook', e);
     res.statusCode = 400;
     res.end('Error parsing JSON payload');
     return;
@@ -52,27 +46,27 @@ function processRequestBody(body, res) {
     res.end('Log update commit detected, skipping.');
     return;
   }
-  checkForUpdates();
+  await smartStashAndPull();
   res.end('Webhook received and processed.');
 }
 
-function checkForUpdates() {
-  git.status().then(status => {
+async function smartStashAndPull() {
+  try {
+    const status = await git.status();
     if (!status.isClean()) {
-      logger.warn('The working directory is not clean. Attempting to stash changes.');
-      git.stash().then(() => updateCode()).catch(err => logger.error(`Stashing error: ${err}`));
-    } else {
-      updateCode();
+      logger.info('Working directory not clean. Checking for critical changes...');
+      if (status.files.some(file => file.index !== '?' && file.working_dir !== '?')) {
+        logger.info('Critical changes detected, stashing...');
+        await git.stash();
+      } else {
+        logger.info('No critical changes, proceeding without stashing...');
+      }
     }
-  }).catch(err => logger.error(`Git status error: ${err}`));
-}
-
-function updateCode() {
-  git.pull('origin', gitBranch, {'--rebase': 'true'}).then(() => {
-    logger.info('Repository successfully updated.');
-  }).catch(err => {
-    logger.error(`Git pull error: ${err}`);
-  });
+    const pullResult = await git.pull('origin', gitBranch, { '--rebase': 'true' });
+    logger.info('Repository successfully updated.', pullResult);
+  } catch (error) {
+    logger.error('Error during smart stash and pull operation', error);
+  }
 }
 
 server.listen(PORT, () => {

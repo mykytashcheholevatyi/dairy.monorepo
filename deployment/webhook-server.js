@@ -39,7 +39,7 @@ http.createServer((req, res) => {
         return;
       }
 
-      const lastCommitMessage = payload.head_commit?.message || '';
+      const lastCommitMessage = (payload.head_commit && payload.head_commit.message) || '';
       if (lastCommitMessage.includes(logCommitMessage)) {
         logger.info('Commit for log update detected, skipping code update to avoid loop.');
         res.end('Log update commit detected, skipping.');

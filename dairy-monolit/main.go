@@ -177,7 +177,7 @@ func LoginUser(w http.ResponseWriter, r *http.Request) {
 
     user, err := userRepository.GetUserByUsername(context.Background(), credentials.Username)
     if err != nil {
-        http.Error(w, "Ошибка при получении пользователя", http.StatusInternalServerError)
+        http.Error(w, "Ошибака при получении пользователя", http.StatusInternalServerError)
         return
     }
     if user == nil {

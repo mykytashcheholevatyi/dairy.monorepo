@@ -239,7 +239,7 @@ func CreateDiaryEntry(w http.ResponseWriter, r *http.Request) {
     }
     entry.UserID = userID
 
-    // Вставка записи в базу данных
+    // Вставка записи в баазу данных
     err = insertDiaryEntry(&entry)
     if err != nil {
         http.Error(w, "Ошибка при создании записи в дневнике", http.StatusInternalServerError)

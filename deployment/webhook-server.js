@@ -20,6 +20,9 @@ const logger = winston.createLogger({
   ],
 });
 
+// Убедитесь, что директория с логами существует
+fs.mkdirSync(`${projectDir}/dairy-monolit/logs`, { recursive: true });
+
 http.createServer((req, res) => {
   if (req.method === 'POST') {
     let body = '';
@@ -27,7 +30,6 @@ http.createServer((req, res) => {
       body += chunk.toString();
     });
     req.on('end', () => {
-      // Десериализация тела запроса
       let payload;
       try {
         payload = JSON.parse(body);
@@ -37,49 +39,46 @@ http.createServer((req, res) => {
         return;
       }
 
-      // Проверка комментария последнего коммита
-      const lastCommitMessage = payload.head_commit.message;
+      const lastCommitMessage = payload.head_commit?.message || '';
       if (lastCommitMessage.includes(logCommitMessage)) {
         logger.info('Commit for log update detected, skipping code update to avoid loop.');
         res.end('Log update commit detected, skipping.');
         return;
       }
 
-      // Обновление кода
       const updateCmd = `cd ${projectDir} && git pull origin ${gitBranch}`;
-      exec(updateCmd, (error, stdout, stderr) => {
-        if (error) {
-          logger.error(`exec error: ${error}`);
-          res.end(`Error updating code: ${error}`);
+      exec(updateCmd, (updateError, updateStdout, updateStderr) => {
+        if (updateError) {
+          logger.error(`exec error: ${updateError}`);
+          res.end(`Error updating code: ${updateError}`);
           return;
         }
-        logger.info(`stdout: ${stdout}`);
-        if (stderr) logger.info(`stderr: ${stderr}`);
 
-        // Запуск Go-приложения с логированием
-        const goAppStartCmd = `go run ${goAppPath} > ${goLogPath} 2>&1 &`;
-        exec(goAppStartCmd, (goError, goStdout, goStderr) => {
+        logger.info(`Update stdout: ${updateStdout}`);
+        updateStderr && logger.error(`Update stderr: ${updateStderr}`);
+
+        // Запуск Go-приложения
+        exec(`go run ${goAppPath} > ${goLogPath} 2>&1 &`, (goError, goStdout, goStderr) => {
           if (goError) {
-            logger.error(`exec error: ${goError}`);
+            logger.error(`Go app exec error: ${goError}`);
             return;
           }
-          logger.info(`Go app stdout: ${goStdout}`);
-          if (goStderr) logger.info(`Go app stderr: ${goStderr}`);
+          goStdout && logger.info(`Go app stdout: ${goStdout}`);
+          goStderr && logger.info(`Go app stderr: ${goStderr}`);
         });
 
-        // Добавление и коммит логов
-        const logCmd = `cd ${projectDir} && git add logs/*.log dairy-monolit/logs/*.log && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`;
-        exec(logCmd, (logError, logStdout, logStderr) => {
+        // Добавление и коммит изменений, включая логи
+        exec(`cd ${projectDir} && git add . && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`, (logError, logStdout, logStderr) => {
           if (logError) {
             logger.error(`exec error: ${logError}`);
             res.end(`Error committing logs: ${logError}`);
             return;
           }
-          logger.info(`Log stdout: ${logStdout}`);
-          if (logStderr) logger.info(`Log stderr: ${logStderr}`);
-        });
 
-        res.end('Code updated, Go app started, and logs committed.');
+          logger.info(`Log commit stdout: ${logStdout}`);
+          logStderr && logger.info(`Log commit stderr: ${logStderr}`);
+          res.end('Code updated, Go app started, and logs committed.');
+        });
       });
     });
   } else {

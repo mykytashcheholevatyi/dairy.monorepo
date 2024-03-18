@@ -1,6 +1,8 @@
 const http = require('http');
 const { exec } = require('child_process');
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const winston = require('winston');
 
 const PORT = 3000;
@@ -16,18 +18,15 @@ const logCommitMessage = '[Log Update] Automated log commit';
 // Настройка логгера Winston
 const logger = winston.createLogger({
   level: 'info',
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  format: winston.format.combine(
+    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+    winston.format.printf(info => `[${info.timestamp}] ${info.level}: ${info.message}`)
+  ),
   transports: [
+    new winston.transports.Console(),
     new winston.transports.File({ filename: `${projectDir}/logs/webhook-server.log` }),
   ],
 });
-
-// Убедитесь, что директория с логами существует
-try {
-  fs.mkdirSync(`${projectDir}/dairy-monolit/logs`, { recursive: true });
-} catch (err) {
-  logger.error(`Error creating log directory: ${err}`);
-}
 
 // Создание HTTP сервера
 const server = http.createServer((req, res) => {
@@ -66,7 +65,7 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        logger.info(`Update stdout: ${updateStdout}`);
+        logger.info(`Code updated: ${updateStdout}`);
         updateStderr && logger.error(`Update stderr: ${updateStderr}`);
 
         // Запуск Go-приложения
@@ -88,8 +87,8 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          logger.info(`Log commit stdout: ${logStdout}`);
-          logStderr && logger.info(`Log commit stderr: ${logStderr}`);
+          logger.info(`Logs committed: ${logStdout}`);
+          logStderr && logger.error(`Log commit stderr: ${logStderr}`);
           res.end('Code updated, Go app started, and logs committed.');
         });
       });
@@ -102,5 +101,8 @@ const server = http.createServer((req, res) => {
 
 // Запуск сервера
 server.listen(PORT, () => {
-  logger.info(`Server listening on port ${PORT}`);
+  const timestamp = new Date().toISOString();
+  const host = os.hostname();
+  const address = server.address().address;
+  logger.info(`Server started at ${timestamp} on ${host} (${address})`);
 });

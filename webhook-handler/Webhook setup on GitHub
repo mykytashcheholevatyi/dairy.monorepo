@@ -1,0 +1,6 @@
+Перейдите в настройки вашего репозитория mykytashch/dairy.monorepo.
+В разделе "Webhooks", создайте новый webhook.
+Установите "Payload URL" как URL вашего сервера с портом, указанным в Node.js приложении, например, http://your-server.com:3000.
+Выберите тип содержимого application/json.
+Выберите события, которые будут инициировать webhook. Для вашего случая подойдет "Just the push event".
+Убедитесь, что webhook активен.

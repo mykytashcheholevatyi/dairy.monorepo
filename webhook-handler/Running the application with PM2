@@ -1,0 +1,3 @@
+npm install pm2 -g  # Установка PM2 глобально
+pm2 start webhook-server.js --name="webhook-server"  # Запуск приложения под именем "webhook-server"
+pm2 save  # Сохранение конфигурации PM2

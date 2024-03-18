@@ -59,9 +59,9 @@ const server = http.createServer((req, res) => {
 // Обновление кода из репозитория Git
 exec(`cd ${projectDir} && git pull origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
   if (updateError) {
-    if (updateStderr.includes('Your local changes to the following files would be overwritten by merge')) {
-      // В случае конфликта при обновлении, предложить пользователю выбрать стратегию разрешения конфликта
-      const errorMessage = 'Error updating code: Merge conflict detected. Choose conflict resolution strategy.';
+    if (updateStderr.includes('hint: You have divergent branches')) {
+      // Если обнаружено расхождение веток, отправляем ответ с предложением выбора стратегии
+      const errorMessage = 'Error updating code: Divergent branches detected. Choose resolution strategy.';
       const options = ['Merge', 'Rebase', 'Fast-Forward Only'];
       logger.error(errorMessage);
       res.statusCode = 409; // Conflict
@@ -103,6 +103,7 @@ exec(`cd ${projectDir} && git pull origin ${gitBranch}`, (updateError, updateStd
     res.end('Code updated, Go app started, and logs committed.');
   });
 });
+
 
 
 // Запуск сервера

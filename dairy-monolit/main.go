@@ -1384,7 +1384,7 @@ func doSomething() error {
     return nil
 }
 
-// Выазов функаацаии с оабработкой ошибки
+// Выазов функааацаии с оабработкой ошибки
 if err := doSomething(); err != nil {
     // Обработка ошибки
     log.Println("Ошибка:", err)

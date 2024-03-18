@@ -5,11 +5,10 @@ const winston = require('winston');
 
 const PORT = 3000;
 const projectDir = '/var/www/dairy-monorepo';
-const goAppPath = `${projectDir}/dairy-monolit/main.go`;
-const goLogPath = `${projectDir}/dairy-monolit/logs/backend.log`;
 const gitBranch = 'main';
 const logCommitMessage = '[Log Update] Automated log commit';
 
+// Logger configuration
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
@@ -22,36 +21,66 @@ const logger = winston.createLogger({
   ],
 });
 
+// HTTP server for handling webhooks
 const server = http.createServer((req, res) => {
   if (req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
-
-    req.on('end', () => {
-      let payload;
-      try {
-        payload = JSON.parse(body);
-      } catch (e) {
-        handleError(res, 400, 'Error parsing JSON payload from GitHub webhook');
-        return;
-      }
-
-      const lastCommitMessage = (payload.head_commit && payload.head_commit.message) || '';
-      if (lastCommitMessage.includes(logCommitMessage)) {
-        logger.info('Commit for log update detected, skipping code update to avoid loop.');
-        res.end('Log update commit detected, skipping.');
-        return;
-      }
-
-      updateCodeAndLogs(res);
-    });
+    handlePostRequest(req, res);
   } else {
     res.statusCode = 404;
     res.end();
   }
 });
+
+function handlePostRequest(req, res) {
+  let body = '';
+  req.on('data', chunk => {
+    body += chunk.toString();
+  });
+  req.on('end', () => processRequestBody(body, res));
+}
+
+function processRequestBody(body, res) {
+  let payload;
+  try {
+    payload = JSON.parse(body);
+  } catch (e) {
+    handleError(res, 400, 'Error parsing JSON payload from GitHub webhook');
+    return;
+  }
+  const lastCommitMessage = (payload.head_commit && payload.head_commit.message) || '';
+  if (lastCommitMessage.includes(logCommitMessage)) {
+    logger.info('Commit for log update detected, skipping code update to avoid loop.');
+    res.end('Log update commit detected, skipping.');
+    return;
+  }
+  checkForCleanDirectoryAndPullChanges(res);
+}
+
+function checkForCleanDirectoryAndPullChanges(res) {
+  exec(`cd ${projectDir} && git status --porcelain`, (err, stdout, stderr) => {
+    if (err) {
+      handleError(res, 500, `Error checking for clean directory: ${err}`);
+      return;
+    }
+    if (stdout) {
+      handleError(res, 500, 'The working directory is not clean. Aborting auto-update.');
+      return;
+    }
+    pullChanges(res);
+  });
+}
+
+function pullChanges(res) {
+  exec(`cd ${projectDir} && git pull --rebase origin ${gitBranch}`, (err, stdout, stderr) => {
+    if (err) {
+      handleError(res, 500, `Error updating code: ${err}`);
+      return;
+    }
+    logger.info(`Code updated: ${stdout}`);
+    stderr && logger.error(`Update stderr: ${stderr}`);
+    res.end('Code updated.');
+  });
+}
 
 function handleError(res, statusCode, errorMessage) {
   logger.error(errorMessage);
@@ -59,48 +88,8 @@ function handleError(res, statusCode, errorMessage) {
   res.end(errorMessage);
 }
 
-function updateCodeAndLogs(res) {
-  exec(`cd ${projectDir} && git pull --rebase=true origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
-    if (updateError) {
-      handleError(res, 500, `Error updating code: ${updateError}`);
-      return;
-    }
-
-    logger.info(`Code updated: ${updateStdout}`);
-    updateStderr && logger.error(`Update stderr: ${updateStderr}`);
-
-    startGoApp();
-    commitLogs(res);
-  });
-}
-
-function startGoApp() {
-  exec(`go run ${goAppPath} > ${goLogPath} 2>&1 &`, (goError, goStdout, goStderr) => {
-    if (goError) {
-      logger.error(`Go app exec error: ${goError}`);
-      return;
-    }
-    goStdout && logger.info(`Go app stdout: ${goStdout}`);
-    goStderr && logger.info(`Go app stderr: ${goStderr}`);
-  });
-}
-
-function commitLogs(res) {
-  exec(`cd ${projectDir} && git add . && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`, (logError, logStdout, logStderr) => {
-    if (logError) {
-      handleError(res, 500, `Error committing logs: ${logError}`);
-      return;
-    }
-
-    logger.info(`Logs committed: ${logStdout}`);
-    logStderr && logger.error(`Log commit stderr: ${logStderr}`);
-    res.end('Code updated, Go app started, and logs committed.');
-  });
-}
-
 server.listen(PORT, () => {
   const timestamp = new Date().toISOString();
   const host = os.hostname();
-  const address = server.address().address;
-  logger.info(`Server started at ${timestamp} on ${host} (${address})`);
+  logger.info(`Server started at ${timestamp} on ${host}`);
 });

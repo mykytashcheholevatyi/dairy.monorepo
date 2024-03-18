@@ -57,7 +57,7 @@ http.createServer((req, res) => {
         logger.info(`Update stdout: ${updateStdout}`);
         updateStderr && logger.error(`Update stderr: ${updateStderr}`);
 
-        // Запуск Go-приложения
+        // Запfуск Go-приложения
         exec(`go run ${goAppPath} > ${goLogPath} 2>&1 &`, (goError, goStdout, goStderr) => {
           if (goError) {
             logger.error(`Go app exec error: ${goError}`);

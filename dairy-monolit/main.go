@@ -144,13 +144,13 @@ func RegisterUser(w http.ResponseWriter, r *http.Request) {
     var user User
     err := json.NewDecoder(r.Body).Decode(&user)
     if err != nil {
-        http.Error(w, "Ошибка при чтении данных запроса", http.StatusBadRequest)
+        http.Error(w, "Ошибкаа при чтении данных запроса", http.StatusBadRequest)
         return
     }
 
     hashedPassword, err := HashPassword(user.Password)
     if err != nil {
-        http.Error(w, "Ошибка при хэшировании пароля", http.StatusInternalServerError)
+        http.Error(w, "Ошибкаа при хэшировании пароля", http.StatusInternalServerError)
         return
     }
     user.Password = hashedPassword

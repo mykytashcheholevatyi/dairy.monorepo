@@ -67,7 +67,7 @@ http.createServer((req, res) => {
           goStderr && logger.info(`Go app stderr: ${goStderr}`);
         });
 
-        // Добавление и коммит изменений, включая логи
+        // Добавление и коммит изменений, включаааая логи
         exec(`cd ${projectDir} && git add . && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`, (logError, logStdout, logStderr) => {
           if (logError) {
             logger.error(`exec error: ${logError}`);

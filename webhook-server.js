@@ -34,9 +34,7 @@ const server = http.createServer((req, res) => {
       try {
         payload = JSON.parse(body);
       } catch (e) {
-        logger.error('Error parsing JSON payload from GitHub webhook');
-        res.statusCode = 400;
-        res.end('Error parsing payload');
+        handleError(res, 400, 'Error parsing JSON payload from GitHub webhook');
         return;
       }
 
@@ -55,12 +53,16 @@ const server = http.createServer((req, res) => {
   }
 });
 
+function handleError(res, statusCode, errorMessage) {
+  logger.error(errorMessage);
+  res.statusCode = statusCode;
+  res.end(errorMessage);
+}
+
 function updateCodeAndLogs(res) {
   exec(`cd ${projectDir} && git pull --rebase=true origin ${gitBranch}`, (updateError, updateStdout, updateStderr) => {
     if (updateError) {
-      logger.error(`Error updating code: ${updateError}`);
-      res.statusCode = 500;
-      res.end(`Error updating code: ${updateError}`);
+      handleError(res, 500, `Error updating code: ${updateError}`);
       return;
     }
 
@@ -86,9 +88,7 @@ function startGoApp() {
 function commitLogs(res) {
   exec(`cd ${projectDir} && git add . && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`, (logError, logStdout, logStderr) => {
     if (logError) {
-      logger.error(`Error committing logs: ${logError}`);
-      res.statusCode = 500;
-      res.end(`Error committing logs: ${logError}`);
+      handleError(res, 500, `Error committing logs: ${logError}`);
       return;
     }
 

@@ -5,6 +5,8 @@ const winston = require('winston');
 const PORT = 3000;
 
 const projectDir = '/var/www/dairy-monorepo';
+const goAppPath = `${projectDir}/dairy-monolit/main.go`;
+const goLogPath = `${projectDir}/dairy-monolit/logs/backend.log`;
 const gitRepoUrl = 'https://github.com/mykytashch/dairy.monorepo.git';
 const gitBranch = 'main';
 const logCommitMessage = '[Log Update] Automated log commit';
@@ -35,7 +37,7 @@ http.createServer((req, res) => {
         return;
       }
 
-      // Проверка комментария последнего коммита на наличие специфической строки
+      // Проверка комментария последнего коммита
       const lastCommitMessage = payload.head_commit.message;
       if (lastCommitMessage.includes(logCommitMessage)) {
         logger.info('Commit for log update detected, skipping code update to avoid loop.');
@@ -54,8 +56,19 @@ http.createServer((req, res) => {
         logger.info(`stdout: ${stdout}`);
         if (stderr) logger.info(`stderr: ${stderr}`);
 
-        // После обновления кода, добавляем и коммитим логи, если есть изменения
-        const logCmd = `cd ${projectDir} && git add logs/*.log && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`;
+        // Запуск Go-приложения с логированием
+        const goAppStartCmd = `go run ${goAppPath} > ${goLogPath} 2>&1 &`;
+        exec(goAppStartCmd, (goError, goStdout, goStderr) => {
+          if (goError) {
+            logger.error(`exec error: ${goError}`);
+            return;
+          }
+          logger.info(`Go app stdout: ${goStdout}`);
+          if (goStderr) logger.info(`Go app stderr: ${goStderr}`);
+        });
+
+        // Добавление и коммит логов
+        const logCmd = `cd ${projectDir} && git add logs/*.log dairy-monolit/logs/*.log && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`;
         exec(logCmd, (logError, logStdout, logStderr) => {
           if (logError) {
             logger.error(`exec error: ${logError}`);
@@ -66,7 +79,7 @@ http.createServer((req, res) => {
           if (logStderr) logger.info(`Log stderr: ${logStderr}`);
         });
 
-        res.end('Code updated and logs committed.');
+        res.end('Code updated, Go app started, and logs committed.');
       });
     });
   } else {

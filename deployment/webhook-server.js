@@ -1,47 +1,78 @@
 const http = require('http');
 const exec = require('child_process').exec;
 const fs = require('fs');
-const PORT = 3000; // Можете изменить порт по вашему усмотрению
+const winston = require('winston');
+const PORT = 3000;
 
 const projectDir = '/var/www/dairy-monorepo';
 const gitRepoUrl = 'https://github.com/mykytashch/dairy.monorepo.git';
 const gitBranch = 'main';
+const logCommitMessage = '[Log Update] Automated log commit';
+
+// Настройка Winston для логирования
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
+  transports: [
+    new winston.transports.File({ filename: `${projectDir}/logs/webhook-server.log` }),
+  ],
+});
 
 http.createServer((req, res) => {
   if (req.method === 'POST') {
-    // Обработка POST запроса от webhook
     let body = '';
     req.on('data', chunk => {
-      body += chunk.toString(); // Преобразование данных запроса в строку
+      body += chunk.toString();
     });
     req.on('end', () => {
-      // При получении данных от GitHub
-      console.log('Received webhook:', body);
-
-      // Проверка существования директории проекта и ее создание при необходимости
-      if (!fs.existsSync(projectDir)){
-        fs.mkdirSync(projectDir, { recursive: true });
+      // Десериализация тела запроса
+      let payload;
+      try {
+        payload = JSON.parse(body);
+      } catch (e) {
+        logger.error('Error parsing JSON payload from GitHub webhook');
+        res.end('Error parsing payload');
+        return;
       }
 
-      // Команда для клонирования репозитория или обновления, если он уже существует
-      const gitCmd = `cd ${projectDir} && (git clone -b ${gitBranch} ${gitRepoUrl} . || git pull origin ${gitBranch})`;
+      // Проверка комментария последнего коммита на наличие специфической строки
+      const lastCommitMessage = payload.head_commit.message;
+      if (lastCommitMessage.includes(logCommitMessage)) {
+        logger.info('Commit for log update detected, skipping code update to avoid loop.');
+        res.end('Log update commit detected, skipping.');
+        return;
+      }
 
-      // Выполнение команды Git
-      exec(gitCmd, (error, stdout, stderr) => {
+      // Обновление кода
+      const updateCmd = `cd ${projectDir} && git pull origin ${gitBranch}`;
+      exec(updateCmd, (error, stdout, stderr) => {
         if (error) {
-          console.error(`exec error: ${error}`);
+          logger.error(`exec error: ${error}`);
+          res.end(`Error updating code: ${error}`);
           return;
         }
-        console.log(`stdout: ${stdout}`);
-        console.error(`stderr: ${stderr}`);
-      });
+        logger.info(`stdout: ${stdout}`);
+        if (stderr) logger.info(`stderr: ${stderr}`);
 
-      res.end('Webhook received and processed');
+        // После обновления кода, добавляем и коммитим логи, если есть изменения
+        const logCmd = `cd ${projectDir} && git add logs/*.log && git commit -m "${logCommitMessage}" && git push origin ${gitBranch}`;
+        exec(logCmd, (logError, logStdout, logStderr) => {
+          if (logError) {
+            logger.error(`exec error: ${logError}`);
+            res.end(`Error committing logs: ${logError}`);
+            return;
+          }
+          logger.info(`Log stdout: ${logStdout}`);
+          if (logStderr) logger.info(`Log stderr: ${logStderr}`);
+        });
+
+        res.end('Code updated and logs committed.');
+      });
     });
   } else {
     res.statusCode = 404;
     res.end();
   }
 }).listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  logger.info(`Server listening on port ${PORT}`);
 });

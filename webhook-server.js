@@ -80,7 +80,7 @@ function updateCodeAndLogs(res) {
 }
 
 function resolveDivergentBranches(res) {
-  exec(`cd ${projectDir} && git config pull.rebase true && git pull origin ${gitBranch}`, (resolveError, resolveStdout, resolveStderr) => {
+  exec(`cd ${projectDir} && git pull origin ${gitBranch} --rebase`, (resolveError, resolveStdout, resolveStderr) => {
     if (resolveError) {
       logger.error(`Error resolving divergent branches: ${resolveError}`);
       res.statusCode = 500;
